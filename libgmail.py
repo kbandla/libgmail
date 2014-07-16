@@ -27,7 +27,7 @@ from hashlib import md5
 # Ignore the following attachments
 IGNORE_LIST = []
 
-__version__ = '0.1'
+__version__ = '0.2.1'
 
 class GmailException(Exception):
     pass
@@ -41,9 +41,14 @@ class Attachment(object):
         self.md5sum = md5(self.data).hexdigest()
 
 class Email(object):
-    def __init__(self, msg_data, logger):
+    def __init__(self, msg_data, num, logger):
+        '''
+        @msg_data   : email message
+        @num        : IMAP email id
+        '''
         self.msg = email.message_from_string(msg_data)
-        self.logger = logger
+        self.num = num
+        self.__logger = logger
         self.attachments = []
 
     def extractAttachments(self):
@@ -58,7 +63,7 @@ class Email(object):
                     filename = part.get_filename()
                     if filename in IGNORE_LIST:
                         # If the filename is in the ignore list, move on
-                        self.logger.debug('Ignoring attachment : %s'%(filename))
+                        self.__logger.debug('Ignoring attachment : %s'%(filename))
                         continue
                     # Make sure that date is actually available
                     date = None
@@ -67,7 +72,7 @@ class Email(object):
                             date = time.struct_time(email.utils.parsedate_tz(msg.get('date'))[:9])
                             #date = time.strptime( msg.get('date')[:-6] ,'%a, %d  %b %Y %H:%M:%S')
                     except Exception,e:
-                        self.logger.error(e)
+                        self.__logger.error(e)
                     attachment = { 
                             'filename': part.get_filename(),
                             'data':part.get_payload(decode=True),
@@ -92,10 +97,10 @@ class Gmail(object):
 
     def _setupLogging(self):
         logging.basicConfig(level=logging.INFO, format="%(levelname)s %(module)s:%(funcName)s() :%(lineno)d|  %(message)s" )
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.INFO)
+        self.__logger = logging.getLogger(__name__)
+        self.__logger.setLevel(logging.INFO)
         if self.verbose:
-            self.logger.setLevel(logging.DEBUG)
+            self.__logger.setLevel(logging.DEBUG)
         # Setup syslogging
 
     def _error(self, msg):
@@ -104,42 +109,42 @@ class Gmail(object):
 
     def _login(self):
         try:
-            self.logger.debug('Connecting to GMAIL..')
+            self.__logger.debug('Connecting to GMAIL..')
             self.conn = imaplib.IMAP4_SSL("imap.gmail.com", 993)
-            self.logger.debug('Successfully connected to GMAIL')
+            self.__logger.debug('Successfully connected to GMAIL')
         except imaplib.IMAP4.error,e:
-            self.logger.error("Could not connect to the server : %s"%(e))
+            self.__logger.error("Could not connect to the server : %s"%(e))
             self._error(e)
         
         try:
-            self.logger.debug('Logging in as %s'%(self.username))
+            self.__logger.debug('Logging in as %s'%(self.username))
             response, data = self.conn.login(self.username , self.password)
-            self.logger.debug('Successfully logged in ')
+            self.__logger.debug('Successfully logged in ')
         except imaplib.IMAP4.error,e:
-            self.logger.error("Could not authenticate : %s"%(e))
+            self.__logger.error("Could not authenticate : %s"%(e))
             self._error(e)
 
     def close(self):
         try:
-            self.logger.debug('Closing mailbox')
+            self.__logger.debug('Closing mailbox')
             self.conn.close()
         except imaplib.IMAP4.error,e:
-            self.logger.error('Could not close mailbox - %s'%(e))
+            self.__logger.error('Could not close mailbox - %s'%(e))
             self._error(e)
 
     def logout(self):
         try:
-            self.logger.debug('Logging out of GMAIL..')
+            self.__logger.debug('Logging out of GMAIL..')
             self.conn.logout()
-            self.logger.debug('Successfully logged out')
+            self.__logger.debug('Successfully logged out')
         except imaplib.IMAP4.error,e:
-            self.logger.error('Could not logout connection : %s'%(e))
+            self.__logger.error('Could not logout connection : %s'%(e))
             self._error(e)
     
     def get_mailboxes(self):
         mailboxes = self.conn.list()
         if mailboxes[0] != 'OK':
-            self.logger.error('Could not get list of mailboxes')
+            self.__logger.error('Could not get list of mailboxes')
             return []
         result = []
         regex = re.compile('\((?P<features>[\w\\\\ ]+)\) \"/\" \"(?P<name>[\w\[\]\/]+)\"')
@@ -155,38 +160,61 @@ class Gmail(object):
             result.append(matchD)
         return result
 
-    def search(self, search_filter, mailbox='INBOX', has_attachment=False):
+    def delete(self, email_numL, expunge=True):
+        '''
+        Delete emails based on the number
+        @email_numL: str or list of email ids
+        @expunge: bool; expunge mailbox after deleting the emails
+        '''
+        if not isinstance(email_numL,list):
+            email_numL = [email_numL]
+        self.__logger.debug('Deleting %s mails'%(len(email_numL)))
+        try:
+            email_numL = ','.join(email_numL)
+            self.conn.store(email_numL, '+FLAGS', '\Deleted')
+            if expunge:
+                self.conn.expunge()
+        except Exception,e:
+            self.__logger.error(e)
+        
+    def search(self, search_filter, mailbox='INBOX', has_attachment=False,
+                        readonly=True):
         '''
         Search, based on advanced search operators for gmail
         https://support.google.com/mail/answer/7190?hl=en
+        @readonly : Open the mailbox in read-only mode
         @returns a list of Email objects
         '''
         assert mailbox
         assert search_filter
-        self.logger.debug('Selecting mailbox : %s'%(mailbox))
-        response, msg_count = self.conn.select(mailbox, readonly=True)
+        self.__logger.debug('Selecting mailbox : %s'%(mailbox))
+        response, msg_count = self.conn.select(mailbox, readonly=readonly)
         if response == 'NO':
-            self.logger.error('Could not select mailbox > %s'%(mailbox))
+            self.__logger.error('Could not select mailbox > %s'%(mailbox))
             return None
-        self.logger.debug('Selection : %s, Number of Mails : %s'%(response, len(msg_count)))
+        self.__logger.debug('Selection : %s, Number of Mails : %s'%(response, len(msg_count)))
         
         result, data = self.conn.search(None, 'X-GM-RAW', search_filter)
         if not data:
-            self.logger.debug('No data returned from search')
+            self.__logger.debug('No data returned from search')
             return None
 
-        data = data[0].split()
-        self.logger.debug('Found %d mail(s)'%( len(data)))
-        nums = ','.join(data)
-
-        response, data = self.conn.fetch(nums, '(RFC822)')
-        self.logger.debug('Fetch response: %s'%(response))
-
         emailL = []
+        data = data[0].split()
+        self.__logger.debug('Found %d mail(s)'%( len(data)))
+        if len(data) == 0:
+            return emailL
+        nums = ','.join(data)
+        
+        response, data = self.conn.fetch(nums, '(RFC822)')
+        self.__logger.debug('Fetch response: %s'%(response))
+
         for msg in data:
             if not isinstance(msg, tuple):
                 continue
-            msg = Email(msg[1], self.logger)
+            # msg[0] = 58 (RFC822 {5990}
+            num = msg[0].split(' (')[0]
+            msg = Email(msg[1], num, self.__logger)
             emailL.append(msg)
         return emailL
 
@@ -199,7 +227,7 @@ class Gmail(object):
         try:
             return self._getAttachmentsSince(since, mailbox)
         except Exception,e:
-            self.logger.error(e)
+            self.__logger.error(e)
         return None
 
     def _getAttachmentsSince(self, since, mailbox='INBOX'):
@@ -210,19 +238,19 @@ class Gmail(object):
         '''
         assert mailbox
         assert since
-        self.logger.debug('Selecting mailbox : %s'%(mailbox))
+        self.__logger.debug('Selecting mailbox : %s'%(mailbox))
         response, msg_count = self.conn.select(mailbox, readonly=True)
         if response == 'NO':
-            self.logger.error('Could not select mailbox > %s'%(mailbox))
+            self.__logger.error('Could not select mailbox > %s'%(mailbox))
             return None
-        self.logger.debug('Selection : %s, Number of Mailboxes : %s'%(response, len(msg_count)))
+        self.__logger.debug('Selection : %s, Number of Mailboxes : %s'%(response, len(msg_count)))
         #result, data = self.conn.search(None, '(SINCE %s)'%(since))
         result, data = self.conn.search(None, 'X-GM-RAW', 'has:attachment after:%s' %(since))
         if not data:
             return None
 
         data = data[0].split()
-        self.logger.debug('Found %d mail(s) since %s with attachments'%( len(data), since))
+        self.__logger.debug('Found %d mail(s) since %s with attachments'%( len(data), since))
         nums = ','.join(data)
 
         attachments = []
@@ -230,12 +258,12 @@ class Gmail(object):
         for num in data:
             if not isinstance(num, tuple):
                 continue
-            msg = Email(num[1], self.logger)
+            msg = Email(num[1], self.__logger)
             msg.extractAttachments()
             attachments.append(msg.attachments)
-        self.logger.debug('Found %s valid attachment(s) since %s'%( len(attachments), since ))
+        self.__logger.debug('Found %s valid attachment(s) since %s'%( len(attachments), since ))
         self.conn.close()
-        self.logger.debug('Closed mailbox %s'%(mailbox))
+        self.__logger.debug('Closed mailbox %s'%(mailbox))
         return attachments
 
     def getAttachmentsForDays(self, days, mailbox='INBOX'):
