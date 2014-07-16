@@ -2,6 +2,9 @@
 libgmail is a simple API to access Gmail using python via Gmail's IMAP interface.
 It is work in progress, based on my needs. Patches are welcome. 
 
+If you are looking for a more thorough implementation with many more options, 
+take a look at the [gmail](https://github.com/charlierguo/gmail) project.
+
 ## Examples
 Here are some examples of libgmail in action
 
