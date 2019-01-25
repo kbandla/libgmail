@@ -1,9 +1,6 @@
 # libgmail - Gmail IMAP Interface in Python
-libgmail is a simple API to access Gmail using python via Gmail's IMAP interface.
+libgmail is a minimal API to access Gmail using python via Gmail's IMAP interface.
 It is work in progress, based on my needs. Patches are welcome. 
-
-If you are looking for a more thorough implementation with many more options, 
-take a look at the [gmail](https://github.com/charlierguo/gmail) project.
 
 ## Examples
 Here are some examples of libgmail in action
@@ -26,11 +23,18 @@ x=Gmail(username, password)
 emails = x.search('from: billg@microsoft.com')
 ```
 
-## Author
-Kiran Bandla
+### Use Gmail's search operators
+```
+...
+params = {'from': 'billg@microsoft.com', 'newer_than': '14d'}
+emails = gmail.advanced_search(**params)
+...
+```
+
+[Search operators you can use with Gmail](https://support.google.com/mail/answer/7190?hl=en)
 
 ## License
 See the LICENSE file
 
 ## Requires
-* Python 2.6 or later
+* Python 3 or later
