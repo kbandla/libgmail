@@ -15,7 +15,6 @@
     *   http://stackoverflow.com/questions/3283460/fetch-an-email-with-imaplib-but-do-not-mark-it-as-seen
     *   http://stackoverflow.com/questions/7930686/search-for-messages-with-attachments-with-gmail-imap
 """
-import sys
 import re
 import imaplib
 import email
@@ -147,7 +146,6 @@ class Gmail:
 
     def __exit(self, msg):
         # Write error messages to syslog
-        sys.stdout.write(msg)
         exit(1)
 
     def _login(self):
